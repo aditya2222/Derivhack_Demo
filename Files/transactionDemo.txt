@@ -1,0 +1,50 @@
+Transaction 6AH3N6HEO4PC26USD7YYQ3TDFK2XC24Q5F4GSEEHB2CPT3ZF2FDQ confirmed in round 1819431
+Transaction information (with notes): class Transaction {
+    fee: 1000
+    firstRound: 1819429
+    from: EZG6H7XKLBMWRJ2OX47J5LZA672BTCUESIQVCZZ7BEWLQO2GPW5XKJKBLE
+    fromrewards: 0
+    genesisID: testnet-v1.0
+    genesishashb64: [B@88574c3
+    lastRound: 1820429
+    noteb64: [B@126e2d91
+    payment: class PaymentTransactionType {
+        amount: 10000
+        close: null
+        closeamount: null
+        closerewards: 0
+        to: KV2XGKMXGYJ6PWYQA5374BYIQBL3ONRMSIARPCFCJEAMAHQEVYPB7PL3KU
+        torewards: 0
+    }
+    poolerror: null
+    round: 1819431
+    tx: 6AH3N6HEO4PC26USD7YYQ3TDFK2XC24Q5F4GSEEHB2CPT3ZF2FDQ
+    type: pay
+}
+Decoded notes: [0413f3339985f1b0e0119ed3bb68a0a4bde4d14c857ae4697243b45d43130166]
+Transaction: 6AH3N6HEO4PC26USD7YYQ3TDFK2XC24Q5F4GSEEHB2CPT3ZF2FDQ
+Transaction Details: class Transaction {
+    fee: 1000
+    firstRound: 1819429
+    from: EZG6H7XKLBMWRJ2OX47J5LZA672BTCUESIQVCZZ7BEWLQO2GPW5XKJKBLE
+    fromrewards: 0
+    genesisID: testnet-v1.0
+    genesishashb64: [B@88574c3
+    lastRound: 1820429
+    noteb64: [B@126e2d91
+    payment: class PaymentTransactionType {
+        amount: 10000
+        close: null
+        closeamount: null
+        closerewards: 0
+        to: KV2XGKMXGYJ6PWYQA5374BYIQBL3ONRMSIARPCFCJEAMAHQEVYPB7PL3KU
+        torewards: 0
+    }
+    poolerror: null
+    round: 1819431
+    tx: 6AH3N6HEO4PC26USD7YYQ3TDFK2XC24Q5F4GSEEHB2CPT3ZF2FDQ
+    type: pay
+}
+Blockchain URL: https://testnet.algoexplorer.io/tx/6AH3N6HEO4PC26USD7YYQ3TDFK2XC24Q5F4GSEEHB2CPT3ZF2FDQ
+HashCode: 0413f3339985f1b0e0119ed3bb68a0a4bde4d14c857ae4697243b45d43130166
+https://testnet.algoexplorer.io/tx/6AH3N6HEO4PC26USD7YYQ3TDFK2XC24Q5F4GSEEHB2CPT3ZF2FDQ
