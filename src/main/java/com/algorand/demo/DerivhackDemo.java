@@ -71,6 +71,18 @@ import org.isda.cdm.Price.PriceBuilder;
 import org.isda.cdm.Security.SecurityBuilder;
 import org.isda.cdm.Bond.BondBuilder;
 import org.isda.cdm.ProductIdentifier.ProductIdentifierBuilder;
+import org.isda.cdm.Event.EventBuilder;
+import org.isda.cdm.EventEffect.EventEffectBuilder;
+
+import org.isda.cdm.metafields.ReferenceWithMetaEvent.ReferenceWithMetaEventBuilder;
+import org.isda.cdm.metafields.ReferenceWithMetaExecution.ReferenceWithMetaExecutionBuilder;
+
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.regnosys.rosetta.common.serialisation.RosettaObjectMapper;
+import org.isda.cdm.Trade.TradeBuilder;
+import org.isda.cdm.PrimitiveEvent.PrimitiveEventBuilder;
+import org.isda.cdm.AllocationOutcome.AllocationOutcomeBuilder;
 
 public  class DerivhackDemo {
 
@@ -142,6 +154,39 @@ protected static String readFile(String filePath)
 
         }
 
+
+        private static Event buildEvent(List<EventTimestamp> timestamps, DateImpl eventDate, ActionEnum action, Lineage lineage, PrimitiveEvent primitiveEvent, EventEffect eventEffect, List<Party> parties , SerialisingHashFunction hashFunction,IdentifierService identifierService ){
+
+            EventBuilder builder = new EventBuilder();
+            builder.setEventDate(eventDate).
+            setAction(action).
+            setLineage(lineage).
+            setPrimitive(primitiveEvent).
+            setEventEffect(eventEffect);
+
+            for(Party party: parties){
+                builder.addParty(party);
+            }
+
+
+            for(EventTimestamp timestamp: timestamps){
+                builder.addTimestamp(timestamp);
+            }
+
+            Event  event = builder.build();
+            String hash = hashFunction.hash(event);
+            event = event.toBuilder().setMeta(buildMeta(hash)).build();
+
+            Identifier id = identifierService.nextType(event.getMeta().getExternalKey(),Event.class.getSimpleName());
+            event = event.toBuilder().addEventIdentifier(id).build();
+            
+            return event;
+
+       // postProcessorProvider.getPostProcessor().forEach(step -> step.runProcessStep(AllocationPrimitive.class, builder));
+
+
+        }
+
         private static Execution buildExecution(ExecutionTypeEnum executionType, List<PartyRole> partyRoles, Price price, Product product, Quantity quantity, SettlementTerms settlementTerms, FieldWithMetaDate tradeDate, String externalKey, IdentifierService identifierService, SerialisingHashFunction hashFunction){
 
             ExecutionBuilder builder = new ExecutionBuilder();
@@ -209,6 +254,16 @@ protected static String readFile(String filePath)
             return builder.build();
         }
 
+        private static EventEffect buildEventEffect(List<ReferenceWithMetaExecution> effectedExecutions){
+            EventEffectBuilder builder = new EventEffectBuilder();
+            for(ReferenceWithMetaExecution effectedExecution: effectedExecutions){
+                builder.addEffectedExecution(effectedExecution);
+            }
+            EventEffect eventEffect = builder.build();
+            return eventEffect;
+
+        }
+
         private static Account buildAccount(FieldWithMetaString accountName, FieldWithMetaString accountNumber, ReferenceWithMetaParty servicingParty,  SerialisingHashFunction hashFunction){
             AccountBuilder builder = new AccountBuilder();
             builder.setAccountName(accountName).
@@ -224,28 +279,208 @@ protected static String readFile(String filePath)
             return account;
         }
     
+    
+
+        private static Party buildParty(FieldWithMetaString partyId, FieldWithMetaString partyName,String externalKey,SerialisingHashFunction hashFunction){
+            PartyBuilder builder = new PartyBuilder();
+            builder.addPartyId(partyId)
+                .setName(partyName);
+
+            Party party = builder.build();
+
+            String hash = hashFunction.hash(party);
+            party = party.toBuilder().setMeta(buildMeta(hash,externalKey)).build();
+            return party;
+
+        }
 
 
     public static void main(String [] args) throws Exception{
 
-        String fileName = args[0];
-        String fileContents;
-        fileContents = readFile(fileName );
-        JSONArray jArray = new JSONArray(fileContents);
+        //Take as input an Allocation Instructions File (in DerivHack format) and a CDM executions file
+        // Example on how to run with Maven
+        // mvn -s settings.xml exec:java -Dexec.mainClass="com.algorand.demo.DerivhackDemo" -Dexec.args="./Files/input_allocations.json ./Files/output_executions.json"  -l "./Files/output_allocations.json" -q  
+
+
+
+        //Set an identifier service and a hash function to generate Identifiers and Rosetta Keys
         IdentifierService identifierService = new IdentifierService();
         SerialisingHashFunction hashFunction = new SerialisingHashFunction();
+        ObjectMapper rosettaObjectMapper = RosettaObjectMapper.getDefaultRosettaObjectMapper();
 
-        for (int trade_idx = 0; trade_idx < jArray.length(); trade_idx++) {
-            //Each JSON object has a trade id and allocations
+        //Create an allocation event and the relevant builders
+        Event allocationEvent;
+        EventBuilder builder = new EventBuilder();
+        PrimitiveEventBuilder primitiveEventBuilder = new PrimitiveEventBuilder();
+        AllocationPrimitiveBuilder allocationBuilder = new AllocationPrimitiveBuilder();
+        AllocationOutcomeBuilder afterBuilder = new AllocationOutcomeBuilder();
+        TradeBuilder originalTradeBuilder = new TradeBuilder();
 
-            JSONObject jb = jArray.getJSONObject(trade_idx);
-            //System.out.println(jb.toString());
-            Integer DH_TradeID = (Integer) jb.get("DH_TradeID");
-            JSONArray allocations = (JSONArray) jb.get("Allocations");
-            for(int allocation_idx = 0; allocation_idx < allocations.length(); allocation_idx++ ){
+
+        //Read the input arguments and read them into files
+        String allocationInstructionFile = args[0];
+        String executionsCDMFile = args[1];
+        String allocationInstructions = readFile(allocationInstructionFile);
+        String executionsCDM = readFile(executionsCDMFile);
+
+         //Read the executions CDM into a CDM object using the Rosetta object mapper
+        Event executionEvent = rosettaObjectMapper
+                .readValue(executionsCDM, Event.class);
+        Execution beforeExecution = executionEvent
+                                            .getPrimitive()
+                                            .getExecution()
+                                            .get(0)
+                                            .getAfter()  
+                                            .getExecution(); 
+
+       
+        //First, assign all the accounts in the execution to the allocation event
+        List<Account> accounts = executionEvent.getAccount();
+        for(Account account: accounts){
+            builder.addAccount(account);
+        }
+
+        //Then, set the Event action as the same as the Event action of the execution event
+        builder.setAction(executionEvent.getAction());
+
+        //Then, set the event date to be the same as the date of the execution event
+        builder.setEventDate(executionEvent.getEventDate());
+
+        //Set the lineage. The previous event to the allocation is the execution event
+        builder.setLineage( new Lineage.LineageBuilder()
+                                .addEventReference(
+                                    new ReferenceWithMetaEventBuilder()
+                                        .setGlobalReference(executionEvent.getMeta().getGlobalKey())
+                                    .build())
+                            .build());
+
+        //Set the parties from the execution event
+        List<Party> parties = executionEvent.getParty();
+        for(Party party: parties){
+            builder.addParty(party);
+        }
+
+        //Read the allocation instructions into a JSON array
+        JSONArray jArray = new JSONArray(allocationInstructions);
+
+        //Use the allocation instructions to create the ``after'' executions
+        JSONObject jObject = (JSONObject) jArray.get(0);
+
+
+
+        JSONArray allocations = (JSONArray) jObject.get("Allocations");
+        for(int allocation_idx = 0; allocation_idx < allocations.length(); allocation_idx++){
+            
+            JSONObject allocation = (JSONObject) allocations.get(allocation_idx);
+            BigDecimal quantity = new BigDecimal((Double) allocation.get("Quantity"));
+            JSONObject clientAccount = (JSONObject) allocation.get("ClientAccount");
+
+            JSONObject partyJSON = (JSONObject) clientAccount.get("Party");
+            String partyID = (String) partyJSON.get("partyId");
+            String partyName = (String) partyJSON.get("name");
+
+            JSONObject accountJSON = (JSONObject) clientAccount.get("Account");
+            String accountNumber = (String) accountJSON.get("accountNumber");
+            String accountName = (String) accountJSON.get("accountName");
+
+            String role= (String) clientAccount.get("role");
+
+            FieldWithMetaString partyIDWithMeta = new FieldWithMetaStringBuilder().setValue(partyID).build();
+            FieldWithMetaString partyNameWithMeta = new FieldWithMetaStringBuilder().setValue(partyName).build();
+
+            FieldWithMetaString accountNumberWithMeta = new FieldWithMetaStringBuilder().setValue(accountNumber).build();
+            FieldWithMetaString accountNameWithMeta = new FieldWithMetaStringBuilder().setValue(accountName).build();
+
+
+        
+            Party party = buildParty(partyIDWithMeta,partyNameWithMeta,partyID,hashFunction);
+            ReferenceWithMetaParty partyReference = new ReferenceWithMetaPartyBuilder()
+                                                    .setMeta(
+                                                         MetaFields.builder()
+                                                        .setReference(party.getMeta().getGlobalKey())
+                                                        .build())
+                                                    .build();
+
+            Account cdmAccount = buildAccount(accountNameWithMeta,accountNumberWithMeta,partyReference,hashFunction);
+            builder.addAccount(cdmAccount).addParty(party);
+
+            ExecutionBuilder executionBuilder = beforeExecution.toBuilder();
+
+
+            PartyRole partyRole = buildPartyRole(partyReference, PartyRoleEnum.valueOf(role.toUpperCase()));
+            executionBuilder.addPartyRole(partyRole);
+            executionBuilder.setQuantity(
+                                new QuantityBuilder()
+                                    .setAmount(quantity)
+                                .build());
+
+            Execution  afterExecution = executionBuilder.build();
+            TradeBuilder allocatedTradeBuilder = new TradeBuilder();
+
+           
+
+            String hash = hashFunction.hash(afterExecution);
+            afterExecution = afterExecution.toBuilder().setMeta(buildMeta(hash)).build();
+
+             builder.setEventEffect(
+                new EventEffectBuilder()
+                .addEffectedExecution(
+                    new ReferenceWithMetaExecutionBuilder()
+                        .setMeta(
+                            MetaFields.builder()
+                                .setReference(hash)
+                            .build())
+                    .build())
+                .build());
+
+            Identifier id = identifierService.nextType(afterExecution.getMeta().getExternalKey(),Execution.class.getSimpleName());
+            afterExecution = afterExecution.toBuilder().addIdentifier(id).build();
+            
+            allocatedTradeBuilder.setExecution(afterExecution);
+            afterBuilder.addAllocatedTrade(allocatedTradeBuilder.build());
+
+
+        }
+       
+
+
+
+        originalTradeBuilder = new TradeBuilder().setExecution(beforeExecution);
+                                        
+
+        afterBuilder.setOriginalTrade(originalTradeBuilder.build());
+
+        allocationBuilder.setAfter(afterBuilder.build());
+        allocationBuilder.setBefore(originalTradeBuilder.build());
+
+
+        primitiveEventBuilder.addAllocation(allocationBuilder.build());
+        builder.setPrimitive(primitiveEventBuilder.build());
+
+
+        allocationEvent = builder.build();
+        String hash = hashFunction.hash(allocationEvent);
+        allocationEvent = allocationEvent.toBuilder().setMeta(buildMeta(hash)).build();
+         
+
+        Identifier id = identifierService.nextType(allocationEvent.getMeta().getExternalKey(),Event.class.getSimpleName());
+        allocationEvent = allocationEvent.toBuilder().addEventIdentifier(id).build();
+
+        String json = rosettaObjectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(allocationEvent);
+
+        System.out.println(json);
+
+
+
+        //Read the details of the Allocation from the Allocation JSON file
+        //For this demo, we will only use the first allocation that we read
+        /*
+        JSONObject jb = jArray.getJSONObject(0);
+        Integer DH_TradeID = (Integer) jb.get("DH_TradeID");
+        JSONArray allocations = (JSONArray) jb.get("Allocations");
+        for(int allocation_idx = 0; allocation_idx < allocations.length(); allocation_idx++ ){
                
                 JSONObject allocation = allocations.getJSONObject(allocation_idx);
-                //System.out.println(allocation.toString());
                 BigDecimal quantity = new BigDecimal((Double) allocation.get("Quantity"));
                 JSONObject partyJSON =  (JSONObject) ( (JSONObject) (allocation.get("ClientAccount"))).get("Party");
                 JSONObject accountJSON = (JSONObject) ( (JSONObject) ( allocation.get("ClientAccount"))).get("Account");
@@ -297,7 +532,7 @@ protected static String readFile(String filePath)
 
 
         
-        
+        */
     }
 }
 /*
